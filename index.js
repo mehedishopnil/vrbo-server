@@ -23,8 +23,6 @@ app.use(morgan("combined"));
 // MongoDB connection
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.jmsycr3.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
-console.log(process.env.DB_USER)
-console.log(process.env.DB_PASS)
 
 const client = new MongoClient(uri, {
   serverApi: {
@@ -40,205 +38,200 @@ async function run() {
     console.log("Connected to MongoDB");
 
     const db = client.db("vrboDB");
-    const allResortDataCollection = db.collection("allResorts");
+    const AllResortsCollection = db.collection("allResorts");
     const usersCollection = db.collection("users");
-    const allBookingsCollection = db.collection("allBookings");
+    const AllHotelListCollection = db.collection("hotelList");
+    const earningListCollection = db.collection("earningList");
+    const PropertyDataCollection = db.collection("propertyData");
+    const userInfoDataCollection = db.collection("userInfo");
 
-    // Email format validation function
-    const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-
-    // ==================== Users Routes ====================
-    app.post("/users", async (req, res) => {
+    // Route to fetch hotel data
+    app.get('/hotel-data', async (req, res) => {
       try {
-        const { name, email } = req.body;
+        const result = await AllResortsCollection.find().toArray();
+        res.json(result);
+      } catch (error) {
+        console.error('Error fetching hotel data:', error);
+        res.status(500).json({ error: 'Error fetching hotel data' });
+      }
+    });
 
-        if (!name || !email || !isValidEmail(email)) {
-          return res.status(400).send("Valid name and email are required");
+    
+    // Route to fetch userInfo data
+    app.get('/userInfo', async (req, res) => {
+      try {
+        const result = await userInfoDataCollection.find().toArray();
+        res.json(result);
+      } catch (error) {
+        console.error('Error fetching userInfo data:', error);
+        res.status(500).json({ error: 'Error fetching userInfo data' });
+      }
+    });
+
+     // Route to handle user registration and Google login
+     app.post('/users', async (req, res) => {
+      try {
+        const { uid, name, email, imageURL } = req.body;
+
+        // Validate required fields
+        if (!uid || !name || !email) {
+          return res.status(400).json({ error: 'Missing required fields (uid, name, email)' });
         }
 
+        // Check if user already exists
         const existingUser = await usersCollection.findOne({ email });
         if (existingUser) {
-          return res.status(409).send("User with this email already exists");
+          return res.status(200).json({ message: 'User already exists', user: existingUser });
         }
 
-        const result = await usersCollection.insertOne(req.body);
-        res.status(201).send({
-          message: "User successfully added",
-          userId: result.insertedId,
-        });
+        // Create new user document
+        const newUser = {
+          uid,
+          name,
+          email,
+          imageURL: imageURL || null, // Default to null if no image URL is provided
+          createdAt: new Date(), // Add timestamp
+          isAdmin: false, // Default role
+        };
+
+        // Insert new user into the database
+        const result = await usersCollection.insertOne(newUser);
+        res.status(201).json({ message: 'User created successfully', user: newUser });
       } catch (error) {
-        console.error("Error adding user data:", error.message);
-        res.status(500).send("Internal Server Error");
+        console.error('Error creating user:', error);
+        res.status(500).json({ error: 'Error creating user' });
       }
     });
 
-    app.get("/users", async (req, res) => {
-      const { email } = req.query;
-
+    // Route to fetch a specific user by email
+    app.get('/users/:email', async (req, res) => {
       try {
-        if (!email || !isValidEmail(email)) {
-          return res.status(400).json({ error: "Valid email is required" });
+        const email = req.params.email;
+        const query = { email };
+        const user = await usersCollection.findOne(query);
+
+        if (!user) {
+          return res.status(404).json({ error: 'User not found' });
         }
 
-        const user = await usersCollection.findOne({ email });
-        if (!user) {
-          return res.status(404).json({ error: "User not found" });
-        }
         res.json(user);
       } catch (error) {
-        console.error("Error fetching user data:", error.message);
-        res.status(500).send("Internal Server Error");
+        console.error('Error fetching user:', error);
+        res.status(500).json({ error: 'Error fetching user' });
       }
     });
 
-    app.get("/all-users", async (req, res) => {
+    // Route to update user role (e.g., make admin)
+    app.patch('/users/:id', async (req, res) => {
       try {
-        const users = await usersCollection.find().toArray();
-        res.send(users);
-      } catch (error) {
-        console.error("Error fetching all user data:", error.message);
-        res.status(500).send("Internal Server Error");
-      }
-    });
+        const userId = req.params.id;
+        const { isAdmin } = req.body;
 
-    app.patch("/update-user", async (req, res) => {
-      const { email, isAdmin } = req.body;
-
-      try {
-        if (!email || typeof isAdmin !== "boolean") {
-          return res.status(400).send("Email and isAdmin status are required");
+        if (typeof isAdmin !== 'boolean') {
+          return res.status(400).json({ error: 'Invalid role data' });
         }
 
         const result = await usersCollection.updateOne(
-          { email },
+          { _id: new ObjectId(userId) },
           { $set: { isAdmin } }
         );
 
-        if (result.modifiedCount === 0) {
-          return res.status(404).send("User not found or role not updated");
+        if (result.matchedCount === 0) {
+          return res.status(404).json({ error: 'User not found' });
         }
 
-        res.send({ success: true, message: "User role updated successfully" });
+        res.json({ message: 'User role updated successfully' });
       } catch (error) {
-        console.error("Error updating user role:", error.message);
-        res.status(500).send("Internal Server Error");
+        console.error('Error updating user role:', error);
+        res.status(500).json({ error: 'Error updating user role' });
       }
     });
 
-    app.patch("/update-user-info", async (req, res) => {
-      const { email, age, securityDeposit, idNumber } = req.body;
-
+    // Route to fetch hotel list data
+    app.get('/hotels-list', async (req, res) => {
       try {
-        const result = await usersCollection.updateOne(
-          { email },
-          { $set: { age, securityDeposit, idNumber } }
-        );
+        const result = await AllHotelListCollection.find().toArray();
+        res.json(result);
+      } catch (error) {
+        console.error('Error fetching hotel list data:', error);
+        res.status(500).json({ error: 'Error fetching hotel list data' });
+      }
+    });
 
-        if (result.modifiedCount === 0) {
-          return res.status(404).json({
-            success: false,
-            message: "User not found or information not updated.",
-          });
+    // Route to insert new hotel list data
+    app.post('/hotels-list', async (req, res) => {
+      try {
+        const newItem = req.body;
+        const result = await AllHotelListCollection.insertOne(newItem);
+        res.status(201).json(result);
+      } catch (error) {
+        console.error('Error inserting into hotel list data:', error);
+        res.status(500).json({ error: 'Error inserting into hotel list' });
+      }
+    });
+
+    // Route to fetch earning list data
+    app.get('/all-earnings', async (req, res) => {
+      try {
+        const result = await earningListCollection.find().toArray();
+        res.json(result);
+      } catch (error) {
+        console.error('Error fetching earning list data:', error);
+        res.status(500).json({ error: 'Error fetching earning list data' });
+      }
+    });
+
+    // Route to insert new earnings data
+    app.post('/all-earnings', async (req, res) => {
+      try {
+        const newItem = req.body;
+        const result = await earningListCollection.insertOne(newItem);
+        res.status(201).json(result);
+      } catch (error) {
+        console.error('Error inserting into earning list data:', error);
+        res.status(500).json({ error: 'Error inserting into earning list' });
+      }
+    });
+
+    // Route to handle adding property data
+    app.post('/add-property', async (req, res) => {
+      try {
+        console.log("Received property data:", req.body); // Debugging line
+
+        const { propertyType, location, details } = req.body;
+
+        if (
+          !propertyType ||
+          !location ||
+          !details ||
+          !details.name ||
+          !details.country ||
+          !details.address ||
+          !details.city ||
+          !details.state ||
+          !details.zipCode
+        ) {
+          return res.status(400).json({ error: 'Invalid property data. Ensure all required fields are provided.' });
         }
 
-        res.json({
-          success: true,
-          message: "User information updated successfully.",
-        });
+        // Insert property data into MongoDB
+        const result = await PropertyDataCollection.insertOne(req.body);
+
+        res.status(201).json({ message: 'Property added successfully', insertedId: result.insertedId });
       } catch (error) {
-        console.error("Error updating user info:", error.message);
-        res.status(500).json({ success: false, message: "Internal Server Error" });
+        console.error('Error adding property:', error);
+        res.status(500).json({ error: 'Error adding property' });
       }
     });
 
-    // ==================== Resorts Routes ====================
-    app.get("/allResorts", async (req, res) => {
+    // Route to fetch property list data
+    app.get('/add-property', async (req, res) => {
       try {
-        const resorts = await allResortDataCollection.find().toArray();
-        res.send(resorts);
+        const result = await PropertyDataCollection.find().toArray();
+        res.json(result);
       } catch (error) {
-        console.error("Error fetching all resort data:", error.message);
-        res.status(500).send("Internal Server Error");
-      }
-    });
-
-    app.post("/resorts", async (req, res) => {
-      try {
-        const resort = req.body;
-        const result = await allResortDataCollection.insertOne(resort);
-        res.send(result);
-      } catch (error) {
-        console.error("Error adding resort data:", error.message);
-        res.status(500).send("Internal Server Error");
-      }
-    });
-
-    // ==================== Bookings Routes ====================
-    app.put("/bookings", async (req, res) => {
-      try {
-        const booking = req.body;
-
-        if (!booking.email || !booking.resortId || !isValidEmail(booking.email)) {
-          return res.status(400).json({ message: "Valid email and resortId are required" });
-        }
-
-        const filter = { email: booking.email, resortId: booking.resortId };
-        const update = { $set: booking };
-        const options = { upsert: true };
-
-        const result = await allBookingsCollection.updateOne(filter, update, options);
-        res.status(200).json({
-          success: true,
-          message: result.upsertedCount
-            ? "Booking created successfully"
-            : "Booking updated successfully",
-        });
-      } catch (error) {
-        console.error("Error creating/updating booking:", error.message);
-        res.status(500).json({ message: "Internal Server Error" });
-      }
-    });
-
-    app.get("/bookings", async (req, res) => {
-      try {
-        const { email } = req.query;
-
-        if (!email || !isValidEmail(email)) {
-          return res.status(400).json({ message: "Valid email is required in query" });
-        }
-
-        const bookings = await allBookingsCollection.find({ email }).toArray();
-        res.status(200).json(bookings);
-      } catch (error) {
-        console.error("Error fetching bookings by email:", error.message);
-        res.status(500).json({ message: "Internal Server Error" });
-      }
-    });
-
-    app.get("/all-bookings", async (req, res) => {
-      try {
-        const allBookings = await allBookingsCollection.find().toArray();
-        res.status(200).json(allBookings);
-      } catch (error) {
-        console.error("Error fetching all bookings:", error.message);
-        res.status(500).json({ message: "Internal Server Error" });
-      }
-    });
-
-    app.delete("/bookings/:id", async (req, res) => {
-      try {
-        const id = req.params.id;
-
-        const result = await allBookingsCollection.deleteOne({ _id: new ObjectId(id) });
-
-        if (result.deletedCount === 0) {
-          return res.status(404).json({ success: false, message: "Booking not found" });
-        }
-
-        res.status(200).json({ success: true, message: "Booking deleted successfully" });
-      } catch (error) {
-        console.error("Error deleting booking:", error.message);
-        res.status(500).json({ message: "Internal Server Error" });
+        console.error('Error fetching property list data:', error);
+        res.status(500).json({ error: 'Error fetching property list data' });
       }
     });
 
