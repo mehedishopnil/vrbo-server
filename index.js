@@ -108,45 +108,77 @@ async function run() {
 
     // ========== YEARLY EARNINGS ROUTES ========== //
 
-    // Get yearly earnings
-    app.get('/yearly-earnings', async (req, res) => {
-      try {
-        const result = await yearlyEarningsCollection.findOne({});
-        res.json(result || {});
-      } catch (error) {
-        console.error('Error fetching yearly earnings:', error);
-        res.status(500).json({ error: 'Error fetching yearly earnings' });
-      }
+// Get all yearly earnings (returns array of documents)
+app.get('/yearly-earnings', async (req, res) => {
+  try {
+    const result = await yearlyEarningsCollection.find().sort({ year: 1 }).toArray();
+    res.json(result);
+  } catch (error) {
+    console.error('Error fetching yearly earnings:', error);
+    res.status(500).json({ error: 'Error fetching yearly earnings' });
+  }
+});
+
+// Update specific year's earnings
+app.put('/yearly-earnings/:year', async (req, res) => {
+  try {
+    const year = req.params.year;
+    const { amount } = req.body;
+
+    if (!year || isNaN(amount)) {
+      return res.status(400).json({ error: 'Invalid year or amount' });
+    }
+
+    const result = await yearlyEarningsCollection.updateOne(
+      { year },
+      { $set: { amount } },
+      { upsert: true }
+    );
+
+    res.json({ 
+      message: 'Yearly earnings updated successfully',
+      year,
+      amount,
+      matchedCount: result.matchedCount,
+      modifiedCount: result.modifiedCount,
+      upsertedId: result.upsertedId
     });
+  } catch (error) {
+    console.error('Error updating yearly earnings:', error);
+    res.status(500).json({ error: 'Error updating yearly earnings' });
+  }
+});
 
-    
-    // Update yearly earnings
-    app.put('/yearly-earnings', async (req, res) => {
-      try {
-        const earningsData = req.body;
+// Bulk update yearly earnings
+app.put('/yearly-earnings', async (req, res) => {
+  try {
+    const earningsData = req.body;
 
-        // Validate the earnings data structure
-        if (!earningsData || typeof earningsData !== 'object') {
-          return res.status(400).json({ error: 'Invalid earnings data' });
-        }
+    if (!Array.isArray(earningsData)) {
+      return res.status(400).json({ error: 'Expected array of earnings data' });
+    }
 
-        // Upsert the yearly earnings document
-        const result = await yearlyEarningsCollection.updateOne(
-          {},
-          { $set: earningsData },
-          { upsert: true }
-        );
-
-        res.json({ 
-          message: 'Yearly earnings updated successfully',
-          updated: result.modifiedCount,
-          upserted: result.upsertedCount
-        });
-      } catch (error) {
-        console.error('Error updating yearly earnings:', error);
-        res.status(500).json({ error: 'Error updating yearly earnings' });
+    const bulkOps = earningsData.map(entry => ({
+      updateOne: {
+        filter: { year: entry.year },
+        update: { $set: { amount: entry.amount } },
+        upsert: true
       }
+    }));
+
+    const result = await yearlyEarningsCollection.bulkWrite(bulkOps);
+
+    res.json({
+      message: 'Bulk update successful',
+      matchedCount: result.matchedCount,
+      modifiedCount: result.modifiedCount,
+      upsertedCount: result.upsertedCount
     });
+  } catch (error) {
+    console.error('Error bulk updating yearly earnings:', error);
+    res.status(500).json({ error: 'Error bulk updating yearly earnings' });
+  }
+});
 
     // ========== EXISTING ROUTES (KEPT FOR BACKWARD COMPATIBILITY) ========== //
 
