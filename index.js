@@ -47,75 +47,106 @@ async function run() {
 
     // ========== USER MANAGEMENT ROUTES ========== //
 
-    // Get all users
+    // Route to fetch userInfo data
+    app.get('/userInfo', async (req, res) => {
+      try {
+        const result = await userInfoDataCollection.find().toArray();
+        res.json(result);
+      } catch (error) {
+        console.error('Error fetching userInfo data:', error);
+        res.status(500).json({ error: 'Error fetching userInfo data' });
+      }
+    });
+
+     // Route to handle user registration and Google login
+     app.post('/users', async (req, res) => {
+      try {
+        const { uid, name, email, imageURL } = req.body;
+
+        // Validate required fields
+        if (!uid || !name || !email) {
+          return res.status(400).json({ error: 'Missing required fields (uid, name, email)' });
+        }
+
+        // Check if user already exists
+        const existingUser = await usersCollection.findOne({ email });
+        if (existingUser) {
+          return res.status(200).json({ message: 'User already exists', user: existingUser });
+        }
+
+        // Create new user document
+        const newUser = {
+          uid,
+          name,
+          email,
+          imageURL: imageURL || null, // Default to null if no image URL is provided
+          createdAt: new Date(), // Add timestamp
+          isAdmin: false, // Default role
+        };
+
+        // Insert new user into the database
+        const result = await usersCollection.insertOne(newUser);
+        res.status(201).json({ message: 'User created successfully', user: newUser });
+      } catch (error) {
+        console.error('Error creating user:', error);
+        res.status(500).json({ error: 'Error creating user' });
+      }
+    });
+
+    // Route to fetch a specific user by email
+    app.get('/users/:email', async (req, res) => {
+      try {
+        const email = req.params.email;
+        const query = { email };
+        const user = await usersCollection.findOne(query);
+
+        if (!user) {
+          return res.status(404).json({ error: 'User not found' });
+        }
+
+        res.json(user);
+      } catch (error) {
+        console.error('Error fetching user:', error);
+        res.status(500).json({ error: 'Error fetching user' });
+      }
+    });
+
+    // getting all users
     app.get('/users', async (req, res) => {
       try {
-        const result = await usersCollection.find().toArray();
-        res.json(result);
+        const users = await usersCollection.find().toArray();
+        res.json(users);
       } catch (error) {
         console.error('Error fetching users:', error);
         res.status(500).json({ error: 'Error fetching users' });
       }
     });
 
-    // Update user by ID
-    app.put('/users/:id', async (req, res) => {
+    // Route to update user role (e.g., make admin)
+    app.patch('/users/:id', async (req, res) => {
       try {
         const userId = req.params.id;
-        const updateData = req.body;
+        const { isAdmin } = req.body;
 
-        if (!ObjectId.isValid(userId)) {
-          return res.status(400).json({ error: 'Invalid user ID' });
+        if (typeof isAdmin !== 'boolean') {
+          return res.status(400).json({ error: 'Invalid role data' });
         }
 
         const result = await usersCollection.updateOne(
           { _id: new ObjectId(userId) },
-          { $set: updateData }
+          { $set: { isAdmin } }
         );
 
         if (result.matchedCount === 0) {
           return res.status(404).json({ error: 'User not found' });
         }
 
-        res.json({ message: 'User updated successfully' });
+        res.json({ message: 'User role updated successfully' });
       } catch (error) {
-        console.error('Error updating user:', error);
-        res.status(500).json({ error: 'Error updating user' });
+        console.error('Error updating user role:', error);
+        res.status(500).json({ error: 'Error updating user role' });
       }
     });
-
-    // Delete user by ID
-    app.delete('/users/:id', async (req, res) => {
-      try {
-        const userId = req.params.id;
-
-        if (!ObjectId.isValid(userId)) {
-          return res.status(400).json({ error: 'Invalid user ID' });
-        }
-
-        const result = await usersCollection.deleteOne({ _id: new ObjectId(userId) });
-
-        if (result.deletedCount === 0) {
-          return res.status(404).json({ error: 'User not found' });
-        }
-
-        res.json({ message: 'User deleted successfully' });
-      } catch (error) {
-        console.error('Error deleting user:', error);
-        res.status(500).json({ error: 'Error deleting user' });
-      }
-    });
-
-       // Route to fetch userInfo data
-       app.get('/userInfo', async (req, res) => {
-        try {
-          const result = await userInfoDataCollection.find().toArray();
-          res.json(result);
-        } catch (error) {
-          console.error('Error fetching userInfo data:', error);
-          res.status(500).json({ error: 'Error fetching userInfo data' });
-        }
-      });
 
     // ========== YEARLY EARNINGS ROUTES ========== //
 
