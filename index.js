@@ -23,7 +23,6 @@ app.use(morgan("combined"));
 // MongoDB connection
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.jmsycr3.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
-
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -42,8 +41,114 @@ async function run() {
     const usersCollection = db.collection("users");
     const AllHotelListCollection = db.collection("hotelList");
     const earningListCollection = db.collection("earningList");
+    const yearlyEarningsCollection = db.collection("yearlyEarnings");
     const PropertyDataCollection = db.collection("propertyData");
     const userInfoDataCollection = db.collection("userInfo");
+
+    // ========== USER MANAGEMENT ROUTES ========== //
+
+    // Get all users
+    app.get('/users', async (req, res) => {
+      try {
+        const result = await usersCollection.find().toArray();
+        res.json(result);
+      } catch (error) {
+        console.error('Error fetching users:', error);
+        res.status(500).json({ error: 'Error fetching users' });
+      }
+    });
+
+    // Update user by ID
+    app.put('/users/:id', async (req, res) => {
+      try {
+        const userId = req.params.id;
+        const updateData = req.body;
+
+        if (!ObjectId.isValid(userId)) {
+          return res.status(400).json({ error: 'Invalid user ID' });
+        }
+
+        const result = await usersCollection.updateOne(
+          { _id: new ObjectId(userId) },
+          { $set: updateData }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).json({ error: 'User not found' });
+        }
+
+        res.json({ message: 'User updated successfully' });
+      } catch (error) {
+        console.error('Error updating user:', error);
+        res.status(500).json({ error: 'Error updating user' });
+      }
+    });
+
+    // Delete user by ID
+    app.delete('/users/:id', async (req, res) => {
+      try {
+        const userId = req.params.id;
+
+        if (!ObjectId.isValid(userId)) {
+          return res.status(400).json({ error: 'Invalid user ID' });
+        }
+
+        const result = await usersCollection.deleteOne({ _id: new ObjectId(userId) });
+
+        if (result.deletedCount === 0) {
+          return res.status(404).json({ error: 'User not found' });
+        }
+
+        res.json({ message: 'User deleted successfully' });
+      } catch (error) {
+        console.error('Error deleting user:', error);
+        res.status(500).json({ error: 'Error deleting user' });
+      }
+    });
+
+    // ========== YEARLY EARNINGS ROUTES ========== //
+
+    // Get yearly earnings
+    app.get('/yearly-earnings', async (req, res) => {
+      try {
+        const result = await yearlyEarningsCollection.findOne({});
+        res.json(result || {});
+      } catch (error) {
+        console.error('Error fetching yearly earnings:', error);
+        res.status(500).json({ error: 'Error fetching yearly earnings' });
+      }
+    });
+
+    
+    // Update yearly earnings
+    app.put('/yearly-earnings', async (req, res) => {
+      try {
+        const earningsData = req.body;
+
+        // Validate the earnings data structure
+        if (!earningsData || typeof earningsData !== 'object') {
+          return res.status(400).json({ error: 'Invalid earnings data' });
+        }
+
+        // Upsert the yearly earnings document
+        const result = await yearlyEarningsCollection.updateOne(
+          {},
+          { $set: earningsData },
+          { upsert: true }
+        );
+
+        res.json({ 
+          message: 'Yearly earnings updated successfully',
+          updated: result.modifiedCount,
+          upserted: result.upsertedCount
+        });
+      } catch (error) {
+        console.error('Error updating yearly earnings:', error);
+        res.status(500).json({ error: 'Error updating yearly earnings' });
+      }
+    });
+
+    // ========== EXISTING ROUTES (KEPT FOR BACKWARD COMPATIBILITY) ========== //
 
     // Route to fetch hotel data
     app.get('/hotel-data', async (req, res) => {
@@ -56,7 +161,6 @@ async function run() {
       }
     });
 
-    
     // Route to fetch userInfo data
     app.get('/userInfo', async (req, res) => {
       try {
@@ -68,8 +172,8 @@ async function run() {
       }
     });
 
-     // Route to handle user registration and Google login
-     app.post('/users', async (req, res) => {
+    // Route to handle user registration and Google login
+    app.post('/users', async (req, res) => {
       try {
         const { uid, name, email, imageURL } = req.body;
 
@@ -89,9 +193,10 @@ async function run() {
           uid,
           name,
           email,
-          imageURL: imageURL || null, // Default to null if no image URL is provided
-          createdAt: new Date(), // Add timestamp
-          isAdmin: false, // Default role
+          imageURL: imageURL || null,
+          createdAt: new Date(),
+          isAdmin: false,
+          lastLogin: new Date()
         };
 
         // Insert new user into the database
@@ -147,94 +252,6 @@ async function run() {
       }
     });
 
-    // Route to fetch hotel list data
-    app.get('/hotels-list', async (req, res) => {
-      try {
-        const result = await AllHotelListCollection.find().toArray();
-        res.json(result);
-      } catch (error) {
-        console.error('Error fetching hotel list data:', error);
-        res.status(500).json({ error: 'Error fetching hotel list data' });
-      }
-    });
-
-    // Route to insert new hotel list data
-    app.post('/hotels-list', async (req, res) => {
-      try {
-        const newItem = req.body;
-        const result = await AllHotelListCollection.insertOne(newItem);
-        res.status(201).json(result);
-      } catch (error) {
-        console.error('Error inserting into hotel list data:', error);
-        res.status(500).json({ error: 'Error inserting into hotel list' });
-      }
-    });
-
-    // Route to fetch earning list data
-    app.get('/all-earnings', async (req, res) => {
-      try {
-        const result = await earningListCollection.find().toArray();
-        res.json(result);
-      } catch (error) {
-        console.error('Error fetching earning list data:', error);
-        res.status(500).json({ error: 'Error fetching earning list data' });
-      }
-    });
-
-    // Route to insert new earnings data
-    app.post('/all-earnings', async (req, res) => {
-      try {
-        const newItem = req.body;
-        const result = await earningListCollection.insertOne(newItem);
-        res.status(201).json(result);
-      } catch (error) {
-        console.error('Error inserting into earning list data:', error);
-        res.status(500).json({ error: 'Error inserting into earning list' });
-      }
-    });
-
-    // Route to handle adding property data
-    app.post('/add-property', async (req, res) => {
-      try {
-        console.log("Received property data:", req.body); // Debugging line
-
-        const { propertyType, location, details } = req.body;
-
-        if (
-          !propertyType ||
-          !location ||
-          !details ||
-          !details.name ||
-          !details.country ||
-          !details.address ||
-          !details.city ||
-          !details.state ||
-          !details.zipCode
-        ) {
-          return res.status(400).json({ error: 'Invalid property data. Ensure all required fields are provided.' });
-        }
-
-        // Insert property data into MongoDB
-        const result = await PropertyDataCollection.insertOne(req.body);
-
-        res.status(201).json({ message: 'Property added successfully', insertedId: result.insertedId });
-      } catch (error) {
-        console.error('Error adding property:', error);
-        res.status(500).json({ error: 'Error adding property' });
-      }
-    });
-
-    // Route to fetch property list data
-    app.get('/add-property', async (req, res) => {
-      try {
-        const result = await PropertyDataCollection.find().toArray();
-        res.json(result);
-      } catch (error) {
-        console.error('Error fetching property list data:', error);
-        res.status(500).json({ error: 'Error fetching property list data' });
-      }
-    });
-
     // Health check route
     app.get("/", (req, res) => {
       res.send("Vrbo server is running");
@@ -259,7 +276,7 @@ process.on("SIGINT", async () => {
   process.exit();
 });
 
-// Global error handler (Optional but good for catching unexpected errors)
+// Global error handler
 app.use((err, req, res, next) => {
   console.error("Unhandled error:", err.message);
   res.status(500).json({ message: "Something went wrong!" });
